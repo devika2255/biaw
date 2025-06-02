@@ -4,7 +4,8 @@ const handleAirtableWebhook = async (req, res) => {
     try {
         const airtableData = req.body;
         console.log('Received Airtable webhook data:', airtableData);
-
+        
+        // Extract relevant data from Airtable webhook
         const {
             id,
             fields: {
@@ -14,8 +15,7 @@ const handleAirtableWebhook = async (req, res) => {
                 'Status': statusObj,
                 'Council': council,
                 'Council Name': councilName,
-                'Year': year,
-                'Google Drive link': googleDriveLink
+                'Year': year
             }
         } = airtableData;
 
@@ -26,112 +26,124 @@ const handleAirtableWebhook = async (req, res) => {
 
         const slug = councilName?.[0]?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || '';
 
-        const boardMeetingsResponse = await axios.get(
-            `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID3}/items`,
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.WEBFLOW_API_KEY}`,
-                    'Content-Type': 'application/json'
+        try {
+            // First get the board meetings from collection 3
+            const boardMeetingsResponse = await axios.get(
+                `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID3}/items`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${process.env.WEBFLOW_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    }
                 }
+            );
+
+            console.log('Board meetings response:', JSON.stringify(boardMeetingsResponse.data, null, 2));
+
+            const boardMeetings = boardMeetingsResponse.data.items || [];
+            console.log('Board meetings array:', JSON.stringify(boardMeetings, null, 2));
+
+            const matchingBoardMeeting = boardMeetings.find(item => {
+                console.log('Checking item:', JSON.stringify(item, null, 2));
+                return item.fieldData?.name === relatedBoardMeeting?.name;
+            });
+
+            if (!matchingBoardMeeting) {
+                throw new Error(`Board meeting "${relatedBoardMeeting?.name}" not found in Webflow`);
             }
-        );
 
-        const boardMeetings = boardMeetingsResponse.data.items || [];
-        const matchingBoardMeeting = boardMeetings.find(item => item.fieldData?.name === relatedBoardMeeting?.name);
+            console.log('Found matching board meeting:', JSON.stringify(matchingBoardMeeting, null, 2));
 
-        if (!matchingBoardMeeting) {
-            throw new Error(`Board meeting "${relatedBoardMeeting?.name}" not found in Webflow`);
-        }
-
-        const collectionSchemaResponse = await axios.get(
-            `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}`,
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.WEBFLOW_API_KEY}`,
-                    'Content-Type': 'application/json'
+            const collectionSchemaResponse = await axios.get(
+                `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${process.env.WEBFLOW_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    }
                 }
-            }
-        );
+            );
 
-        const statusField = collectionSchemaResponse.data.fields.find(f => f.slug === 'status');
-        const boardMeetingField = collectionSchemaResponse.data.fields.find(f => f.slug === 'board-meeting');
+            console.log('Collection schema:', JSON.stringify(collectionSchemaResponse.data, null, 2));
 
-        const statusOption = statusField?.validations?.options?.find(opt => 
-            opt.name.toLowerCase() === status.toLowerCase().trim()
-        );
-        const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt => 
-            opt.name === relatedBoardMeeting?.name
-        );
+            const statusField = collectionSchemaResponse.data.fields.find(f => f.slug === 'status');
+            const boardMeetingField = collectionSchemaResponse.data.fields.find(f => f.slug === 'board-meeting');
+            const statusOption = statusField?.validations?.options?.find(opt => 
+                opt.name.toLowerCase() === status.toLowerCase().trim()
+            );
+            const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt => 
+                opt.name === relatedBoardMeeting?.name
+            );
 
-        const webflowItemData = {
-            status: statusOption?.id || '',
-            'board-meeting': boardMeetingOption?.id || '',
-            name: councilName?.[0] || '',
-            slug: slug,
-            year: year || '',
-            'related-board-meeting': [matchingBoardMeeting.id]
-        };
-
-        if (agenda && agenda.length > 0) {
-            const agendaFile = agenda[0];
-            webflowItemData['agenda-2'] = {
-                url: agendaFile.url,
-                alt: null
+            const webflowItemData = {
+                status: statusOption?.id || '',
+                'board-meeting': boardMeetingOption?.id || '',
+                name: councilName?.[0] || '',
+                slug: slug,
+                year: year || '',
+                'related-board-meeting': [matchingBoardMeeting.id]
             };
-        }
 
-        if (minutes && minutes.length > 0) {
-            const minutesFile = minutes[0];
-            webflowItemData['minutes-2'] = {
-                url: minutesFile.url,
-                alt: null
-            };
-        }
-
-        if (googleDriveLink) {
-            webflowItemData['google-drive'] = {
-                url: googleDriveLink,
-                alt: null
-            };
-        }
-
-        console.log('Creating Webflow item with data:', JSON.stringify(webflowItemData, null, 2));
-
-        const webflowResponse = await axios.post(
-            `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}/items/live`,
-            {
-                fieldData: webflowItemData
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.WEBFLOW_API_KEY}`,
-                    'Content-Type': 'application/json'
-                }
+            if (agenda && agenda.length > 0) {
+                const agendaFile = agenda[0];
+                webflowItemData['agenda-2'] = {
+                    url: agendaFile.url,
+                    alt: null
+                };
             }
-        );
 
-        console.log('Webflow item created:', JSON.stringify(webflowResponse.data, null, 2));
-
-        await axios.patch(
-            `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID3}/${process.env.AIRTABLE_TABLE_NAMES5}/${id}`,
-            {
-                fields: {
-                    'Webflow ID': webflowResponse.data.id
-                }
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${process.env.AIRTABLE_API_KEYS3}`,
-                    'Content-Type': 'application/json'
-                }
+            if (minutes && minutes.length > 0) {
+                const minutesFile = minutes[0];
+                webflowItemData['minutes-2'] = {
+                    url: minutesFile.url,
+                    alt: null
+                };
             }
-        );
 
-        res.status(200).json({
-            success: true,
-            message: 'Webflow item created successfully',
-            data: webflowResponse.data
-        });
+            console.log('Creating Webflow item with data:', JSON.stringify(webflowItemData, null, 2));
+
+            // Create new Webflow item
+            const webflowResponse = await axios.post(
+                `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}/items/live`,
+                {
+                    fieldData: webflowItemData
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${process.env.WEBFLOW_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            console.log('Webflow item created:', JSON.stringify(webflowResponse.data, null, 2));
+
+            // After creating the item, update the Airtable record with the new Webflow ID
+            await axios.patch(
+                `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID3}/${process.env.AIRTABLE_TABLE_NAMES5}/${id}`,
+                {
+                    fields: {
+                        'Webflow ID': webflowResponse.data.id
+                    }
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${process.env.AIRTABLE_API_KEYS3}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Webflow item created successfully',
+                data: webflowResponse.data
+            });
+
+        } catch (webflowError) {
+            console.error('Webflow API Error:', webflowError.response?.data || webflowError.message);
+            throw webflowError;
+        }
 
     } catch (error) {
         console.error('Error processing Airtable webhook:', error);
@@ -159,8 +171,7 @@ const handleAirtableUpdateWebhook = async (req, res) => {
                 'Status': statusObj,
                 'Council': council,
                 'Council Name': councilName,
-                'Year': year,
-                'Google Drive link': googleDriveLink
+                'Year': year
             }
         } = airtableData;
 
@@ -189,7 +200,9 @@ const handleAirtableUpdateWebhook = async (req, res) => {
         );
 
         const boardMeetings = boardMeetingsResponse.data.items || [];
-        const matchingBoardMeeting = boardMeetings.find(item => item.fieldData?.name === relatedBoardMeeting?.name);
+        const matchingBoardMeeting = boardMeetings.find(item => {
+            return item.fieldData?.name === relatedBoardMeeting?.name;
+        });
 
         if (!matchingBoardMeeting) {
             throw new Error(`Board meeting "${relatedBoardMeeting?.name}" not found in Webflow`);
@@ -207,10 +220,10 @@ const handleAirtableUpdateWebhook = async (req, res) => {
 
         const statusField = collectionSchemaResponse.data.fields.find(f => f.slug === 'status');
         const boardMeetingField = collectionSchemaResponse.data.fields.find(f => f.slug === 'board-meeting');
-
         const statusOption = statusField?.validations?.options?.find(opt => 
             opt.name.toLowerCase() === status.toLowerCase().trim()
         );
+
         const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt => 
             opt.name === relatedBoardMeeting?.name
         );
@@ -239,15 +252,9 @@ const handleAirtableUpdateWebhook = async (req, res) => {
             };
         }
 
-        if (googleDriveLink) {
-            webflowItemData['google-drive'] = {
-                url: googleDriveLink,
-                alt: null
-            };
-        }
-
         console.log('Updating Webflow item with data:', JSON.stringify(webflowItemData, null, 2));
 
+        // Update Webflow item
         const webflowResponse = await axios.patch(
             `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}/items/${webflowId}/live`,
             {
@@ -266,7 +273,6 @@ const handleAirtableUpdateWebhook = async (req, res) => {
             message: 'Webflow item updated successfully',
             data: webflowResponse.data
         });
-
     } catch (error) {
         console.error('Error updating Webflow item from Airtable webhook:', error);
         if (error.response && error.response.data) {
@@ -284,4 +290,4 @@ const handleAirtableUpdateWebhook = async (req, res) => {
 module.exports = {
     handleAirtableWebhook,
     handleAirtableUpdateWebhook
-};
+}; 
