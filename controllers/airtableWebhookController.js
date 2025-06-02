@@ -15,7 +15,8 @@ const handleAirtableWebhook = async (req, res) => {
                 'Status': statusObj,
                 'Council': council,
                 'Council Name': councilName,
-                'Year': year
+                'Year': year,
+                'Google Drive link': googledrivelink
             }
         } = airtableData;
 
