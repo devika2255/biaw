@@ -4,7 +4,7 @@ const handleAirtableWebhook = async (req, res) => {
     try {
         const airtableData = req.body;
         console.log('Received Airtable webhook data:', airtableData);
-        
+
         // Extract relevant data from Airtable webhook
         const {
             id,
@@ -39,21 +39,15 @@ const handleAirtableWebhook = async (req, res) => {
                 }
             );
 
-            console.log('Board meetings response:', JSON.stringify(boardMeetingsResponse.data, null, 2));
-
             const boardMeetings = boardMeetingsResponse.data.items || [];
-            console.log('Board meetings array:', JSON.stringify(boardMeetings, null, 2));
 
             const matchingBoardMeeting = boardMeetings.find(item => {
-                console.log('Checking item:', JSON.stringify(item, null, 2));
                 return item.fieldData?.name === relatedBoardMeeting?.name;
             });
 
             if (!matchingBoardMeeting) {
                 throw new Error(`Board meeting "${relatedBoardMeeting?.name}" not found in Webflow`);
             }
-
-            console.log('Found matching board meeting:', JSON.stringify(matchingBoardMeeting, null, 2));
 
             const collectionSchemaResponse = await axios.get(
                 `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}`,
@@ -65,14 +59,12 @@ const handleAirtableWebhook = async (req, res) => {
                 }
             );
 
-            console.log('Collection schema:', JSON.stringify(collectionSchemaResponse.data, null, 2));
-
             const statusField = collectionSchemaResponse.data.fields.find(f => f.slug === 'status');
             const boardMeetingField = collectionSchemaResponse.data.fields.find(f => f.slug === 'board-meeting');
-            const statusOption = statusField?.validations?.options?.find(opt => 
+            const statusOption = statusField?.validations?.options?.find(opt =>
                 opt.name.toLowerCase() === status.toLowerCase().trim()
             );
-            const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt => 
+            const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt =>
                 opt.name === relatedBoardMeeting?.name
             );
 
@@ -101,9 +93,12 @@ const handleAirtableWebhook = async (req, res) => {
                 };
             }
 
+            if (googledrivelink) {
+                webflowItemData['google-drive'] = googledrivelink;
+            }
+
             console.log('Creating Webflow item with data:', JSON.stringify(webflowItemData, null, 2));
 
-            // Create new Webflow item
             const webflowResponse = await axios.post(
                 `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}/items/live`,
                 {
@@ -117,9 +112,6 @@ const handleAirtableWebhook = async (req, res) => {
                 }
             );
 
-            console.log('Webflow item created:', JSON.stringify(webflowResponse.data, null, 2));
-
-            // After creating the item, update the Airtable record with the new Webflow ID
             await axios.patch(
                 `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID3}/${process.env.AIRTABLE_TABLE_NAMES5}/${id}`,
                 {
@@ -172,7 +164,8 @@ const handleAirtableUpdateWebhook = async (req, res) => {
                 'Status': statusObj,
                 'Council': council,
                 'Council Name': councilName,
-                'Year': year
+                'Year': year,
+                'Google Drive link': googledrivelink
             }
         } = airtableData;
 
@@ -221,11 +214,10 @@ const handleAirtableUpdateWebhook = async (req, res) => {
 
         const statusField = collectionSchemaResponse.data.fields.find(f => f.slug === 'status');
         const boardMeetingField = collectionSchemaResponse.data.fields.find(f => f.slug === 'board-meeting');
-        const statusOption = statusField?.validations?.options?.find(opt => 
+        const statusOption = statusField?.validations?.options?.find(opt =>
             opt.name.toLowerCase() === status.toLowerCase().trim()
         );
-
-        const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt => 
+        const boardMeetingOption = boardMeetingField?.validations?.options?.find(opt =>
             opt.name === relatedBoardMeeting?.name
         );
 
@@ -253,9 +245,12 @@ const handleAirtableUpdateWebhook = async (req, res) => {
             };
         }
 
+        if (googledrivelink) {
+            webflowItemData['google-drive'] = googledrivelink;
+        }
+
         console.log('Updating Webflow item with data:', JSON.stringify(webflowItemData, null, 2));
 
-        // Update Webflow item
         const webflowResponse = await axios.patch(
             `https://api.webflow.com/v2/collections/${process.env.WEBFLOW_COLLECTION_ID2}/items/${webflowId}/live`,
             {
@@ -274,6 +269,7 @@ const handleAirtableUpdateWebhook = async (req, res) => {
             message: 'Webflow item updated successfully',
             data: webflowResponse.data
         });
+
     } catch (error) {
         console.error('Error updating Webflow item from Airtable webhook:', error);
         if (error.response && error.response.data) {
@@ -291,4 +287,4 @@ const handleAirtableUpdateWebhook = async (req, res) => {
 module.exports = {
     handleAirtableWebhook,
     handleAirtableUpdateWebhook
-}; 
+};
